@@ -14,6 +14,8 @@
 #include <sstream>
 #include <string>
 #include <iterator>
+#include <limits>
+#include <cassert>
 
 #include "particle_filter.h"
 
@@ -25,7 +27,6 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
   // Add random Gaussian noise to each particle.
   // NOTE: Consult particle_filter.h for more information about this method (and others in this file).
 
-  // 1. Initialize all particles according to the Gaussian distribution.
   default_random_engine gen;
 
   // Create Gaussian distributions for each positional parameter.
@@ -43,11 +44,6 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
     p.weight = 1.0f;
     this->particles.emplace_back(p);
   }
-
-  // 2. Set all weights to 1. (??)
-  for (int i = 0; i < this->num_particles; i++) {
-    this->weights.emplace_back(1.0f);
-  }
 }
 
 void ParticleFilter::prediction(double delta_t, double std_pos[], double velocity, double yaw_rate) {
@@ -59,21 +55,22 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
   // For the random Gaussian noise, ideally it should come from std_velocity and std_yaw_rate.
   // Using std_pos is a vast simplification in this project.
   default_random_engine gen;
-  for (int i = 0; i < this->num_particles; i++) {
-    Particle& p = this->particles[i];
-	normal_distribution<double> dist_x(p.x + velocity / yaw_rate *
-	                                   (sin(p.theta + yaw_rate * delta_t) - sin(p.theta)));
-	normal_distribution<double> dist_y(p.y + velocity / yaw_rate *
-	                                   (cos(p.theta) - cos(p.theta + yaw_rate * delta_t)));
-	normal_distribution<double> dist_theta(p.theta + yaw_rate);
+  for (int i = 0; i < this->particles.size(); i++) {
+    auto& p = this->particles[i];
+    normal_distribution<double> dist_x(p.x + velocity / yaw_rate *
+                                       (sin(p.theta + yaw_rate * delta_t) - sin(p.theta)));
+    normal_distribution<double> dist_y(p.y + velocity / yaw_rate *
+                                       (cos(p.theta) - cos(p.theta + yaw_rate * delta_t)));
+    normal_distribution<double> dist_theta(p.theta + yaw_rate);
 
-	p.x = dist_x(gen);
-	p.y = dist_y(gen);
-	p.theta = dist_theta(gen);
+    p.x = dist_x(gen);
+    p.y = dist_y(gen);
+    p.theta = dist_theta(gen);
   }
 }
 
-void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::vector<LandmarkObs>& observations) {
+void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted,
+                                     std::vector<LandmarkObs>& observations) {
   // TODO: Find the predicted measurement that is closest to each observed measurement and assign the 
   //   observed measurement to this particular landmark.
   // NOTE: this method will NOT be called by the grading code. But you will probably find it useful to 
@@ -82,7 +79,7 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 }
 
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[], 
-    const std::vector<LandmarkObs> &observations, const Map &map_landmarks) {
+                                   const std::vector<LandmarkObs> &observations, const Map &map_landmarks) {
   // TODO: Update the weights of each particle using a mult-variate Gaussian distribution. You can read
   //   more about this distribution here: https://en.wikipedia.org/wiki/Multivariate_normal_distribution
   // NOTE: The observations are given in the VEHICLE'S coordinate system. Your particles are located
@@ -90,9 +87,51 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
   //   Keep in mind that this transformation requires both rotation AND translation (but no scaling).
   //   The following is a good resource for the theory:
   //   https://www.willamette.edu/~gorr/classes/GeneralGraphics/Transforms/transforms2d.htm
-  //   and the following is a good resource for the actual equation to implement (look at equation 
-  //   3.33
+  //   and the following is a good resource for the actual equation to implement (look at equation 3.33)
   //   http://planning.cs.uiuc.edu/node99.html
+
+  for (int i = 0; i < this->particles.size(); i++) {
+    auto& p = this->particles[i];
+
+    p.weight = 1.0f;
+    p.associations.clear();
+    p.sense_x.clear();
+    p.sense_y.clear();
+
+    for (int j = 0; j < observations.size(); j++) {
+      auto& o = observations[j];
+
+      // Translation from vehicle (particle) coordinate system to map coordinate system.
+      double xm = p.x + cos(p.theta) * o.x - sin(p.theta) * o.y;
+      double ym = p.y + sin(p.theta) * o.x + cos(p.theta) * o.y;
+      p.sense_x.emplace_back(xm);
+      p.sense_y.emplace_back(ym);
+
+      // Find the nearest landmark.
+      double min_distance = numeric_limits<double>::max();
+      int nearest = -1;
+      for (int k = 0; k < map_landmarks.landmark_list.size(); k++) {
+        auto& l = map_landmarks.landmark_list[k];
+        double distance = dist(l.x_f, l.y_f, xm, ym);
+        if (distance < min_distance) {
+          min_distance = distance;
+          nearest = k;
+        }
+      }
+      assert(nearest != -1);
+      p.associations.emplace_back(nearest);
+
+      // Compute the multi-gaussian probability for this observation.
+      double lx = map_landmarks.landmark_list[nearest].x_f;
+      double ly = map_landmarks.landmark_list[nearest].y_f;
+      double prob = exp(-(squared(xm - lx) / 2 / squared(std_landmark[0]) +
+                          squared(ym - ly) / 2 / squared(std_landmark[1])))
+                    / 2 / M_PI / std_landmark[0] / std_landmark[1];
+
+      // Update this particle's weight
+      p.weight *= prob;
+    }
+  }
 }
 
 void ParticleFilter::resample() {
@@ -103,41 +142,41 @@ void ParticleFilter::resample() {
 }
 
 Particle ParticleFilter::SetAssociations(Particle& particle, const std::vector<int>& associations, 
-                                     const std::vector<double>& sense_x, const std::vector<double>& sense_y)
-{
-    //particle: the particle to assign each listed association, and association's (x,y) world coordinates mapping to
-    // associations: The landmark id that goes along with each listed association
-    // sense_x: the associations x mapping already converted to world coordinates
-    // sense_y: the associations y mapping already converted to world coordinates
+                                         const std::vector<double>& sense_x,
+										 const std::vector<double>& sense_y) {
+  //particle: the particle to assign each listed association, and association's (x,y) world coordinates mapping to
+  // associations: The landmark id that goes along with each listed association
+  // sense_x: the associations x mapping already converted to world coordinates
+  // sense_y: the associations y mapping already converted to world coordinates
 
-    particle.associations= associations;
-    particle.sense_x = sense_x;
-    particle.sense_y = sense_y;
+  particle.associations= associations;
+  particle.sense_x = sense_x;
+  particle.sense_y = sense_y;
 }
 
 string ParticleFilter::getAssociations(Particle best) {
   vector<int> v = best.associations;
   stringstream ss;
-    copy( v.begin(), v.end(), ostream_iterator<int>(ss, " "));
-    string s = ss.str();
-    s = s.substr(0, s.length()-1);  // get rid of the trailing space
-    return s;
+  copy( v.begin(), v.end(), ostream_iterator<int>(ss, " "));
+  string s = ss.str();
+  s = s.substr(0, s.length()-1);  // get rid of the trailing space
+  return s;
 }
 
 string ParticleFilter::getSenseX(Particle best) {
   vector<double> v = best.sense_x;
   stringstream ss;
-    copy( v.begin(), v.end(), ostream_iterator<float>(ss, " "));
-    string s = ss.str();
-    s = s.substr(0, s.length()-1);  // get rid of the trailing space
-    return s;
+  copy( v.begin(), v.end(), ostream_iterator<float>(ss, " "));
+  string s = ss.str();
+  s = s.substr(0, s.length()-1);  // get rid of the trailing space
+  return s;
 }
 
 string ParticleFilter::getSenseY(Particle best) {
   vector<double> v = best.sense_y;
   stringstream ss;
-    copy( v.begin(), v.end(), ostream_iterator<float>(ss, " "));
-    string s = ss.str();
-    s = s.substr(0, s.length()-1);  // get rid of the trailing space
-    return s;
+  copy( v.begin(), v.end(), ostream_iterator<float>(ss, " "));
+  string s = ss.str();
+  s = s.substr(0, s.length()-1);  // get rid of the trailing space
+  return s;
 }
