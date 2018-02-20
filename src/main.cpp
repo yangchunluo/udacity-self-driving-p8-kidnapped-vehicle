@@ -42,10 +42,10 @@ int main()
     return -1;
   }
 
-  // Create particle filter
-  ParticleFilter pf;
+  // Create particle filter (set the number of particles)
+  ParticleFilter pf(1000);
 
-  h.onMessage([&pf,&map,&delta_t,&sensor_range,&sigma_pos,&sigma_landmark]
+  h.onMessage([&pf, &map, &delta_t, &sensor_range, &sigma_pos, &sigma_landmark]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
     
     // "42" at the start of the message means there's a websocket message event.
@@ -57,12 +57,12 @@ int main()
     
     // Check if message has data
     auto s = hasData(std::string(data));
-    if (s != "") {
+    if (s == "") {
       std::string msg = "42[\"manual\",{}]";
       ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
       return;
     }
-
+    
     // Check if the event is telemetry    
     auto j = json::parse(s);
     std::string event = j[0].get<std::string>();  
