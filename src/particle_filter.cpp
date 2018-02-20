@@ -55,8 +55,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
   // For the random Gaussian noise, ideally it should come from std_velocity and std_yaw_rate.
   // Using std_pos is a vast simplification in this project.
   default_random_engine gen;
-  for (int i = 0; i < this->particles.size(); i++) {
-    auto& p = this->particles[i];
+  for (auto& p : this->particles) {
     normal_distribution<double> dist_x(p.x + velocity / yaw_rate *
                                        (sin(p.theta + yaw_rate * delta_t) - sin(p.theta)));
     normal_distribution<double> dist_y(p.y + velocity / yaw_rate *
@@ -90,16 +89,14 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
   //   and the following is a good resource for the actual equation to implement (look at equation 3.33)
   //   http://planning.cs.uiuc.edu/node99.html
 
-  for (int i = 0; i < this->particles.size(); i++) {
-    auto& p = this->particles[i];
+  for (auto& p : this->particles) {
 
     p.weight = 1.0f;
     p.associations.clear();
     p.sense_x.clear();
     p.sense_y.clear();
 
-    for (int j = 0; j < observations.size(); j++) {
-      auto& o = observations[j];
+    for (auto& o : observations) {
 
       // Translation from vehicle (particle) coordinate system to map coordinate system.
       double xm = p.x + cos(p.theta) * o.x - sin(p.theta) * o.y;
@@ -128,7 +125,7 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
                           squared(ym - ly) / 2 / squared(std_landmark[1])))
                     / 2 / M_PI / std_landmark[0] / std_landmark[1];
 
-      // Update this particle's weight
+      // Update this particle's weight.
       p.weight *= prob;
     }
   }
@@ -139,10 +136,23 @@ void ParticleFilter::resample() {
   // NOTE: You may find std::discrete_distribution helpful here.
   //   http://en.cppreference.com/w/cpp/numeric/random/discrete_distribution
 
+  vector<double> weights;
+  for (auto& p : this->particles) {
+    weights.emplace_back(p.weight);
+  }
+  discrete_distribution<int> dist(weights.begin(), weights.end());
+  default_random_engine gen;
+
+  vector<Particle> new_particles;
+  for (int i = 0; i < this->num_particles; i++) {
+    new_particles.emplace_back(this->particles[dist(gen)]);
+  }
+
+  this->particles = new_particles;
 }
 
-Particle ParticleFilter::SetAssociations(Particle& particle, const std::vector<int>& associations, 
-                                         const std::vector<double>& sense_x,
+void ParticleFilter::SetAssociations(Particle& particle, const std::vector<int>& associations, 
+                                     const std::vector<double>& sense_x,
 										 const std::vector<double>& sense_y) {
   //particle: the particle to assign each listed association, and association's (x,y) world coordinates mapping to
   // associations: The landmark id that goes along with each listed association
