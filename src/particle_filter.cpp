@@ -68,15 +68,6 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
   }
 }
 
-void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted,
-                                     std::vector<LandmarkObs>& observations) {
-  // TODO: Find the predicted measurement that is closest to each observed measurement and assign the 
-  //   observed measurement to this particular landmark.
-  // NOTE: this method will NOT be called by the grading code. But you will probably find it useful to 
-  //   implement this method and use it as a helper during the updateWeights phase.
-
-}
-
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[], 
                                    const std::vector<LandmarkObs> &observations, const Map &map_landmarks) {
   // TODO: Update the weights of each particle using a mult-variate Gaussian distribution. You can read
@@ -96,38 +87,52 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
     p.sense_x.clear();
     p.sense_y.clear();
 
+    // Filter out the landmarks that is outside the sensor range for this particle.
+    vector<LandmarkObs> lm_in_range;
+    for (auto& l : map_landmarks.landmark_list) {
+      if (dist(p.x, p.y, l.x_f, l.y_f) > sensor_range) {
+        continue;
+      }
+      lm_in_range.emplace_back(LandmarkObs(l.id_i, l.x_f, l.y_f));
+    }
+
+    // For each observation, associate it with a landmark.
     for (auto& o : observations) {
-
       // Translation from vehicle (particle) coordinate system to map coordinate system.
-      double xm = p.x + cos(p.theta) * o.x - sin(p.theta) * o.y;
-      double ym = p.y + sin(p.theta) * o.x + cos(p.theta) * o.y;
-      p.sense_x.emplace_back(xm);
-      p.sense_y.emplace_back(ym);
+      const double xm = p.x + cos(p.theta) * o.x - sin(p.theta) * o.y;
+      const double ym = p.y + sin(p.theta) * o.x + cos(p.theta) * o.y;
 
-      // Find the nearest landmark.
-      double min_distance = numeric_limits<double>::max();
-      int nearest = -1;
-      for (int k = 0; k < map_landmarks.landmark_list.size(); k++) {
-        auto& l = map_landmarks.landmark_list[k];
-        double distance = dist(l.x_f, l.y_f, xm, ym);
-        if (distance < min_distance) {
-          min_distance = distance;
-          nearest = k;
+      // Data association using nearest-neighbor heuristics.
+      double min_dist = numeric_limits<double>::max();
+      int index = -1;
+      for (int i = 0; i < lm_in_range.size(); i++) {
+        double curr_dist = dist(xm, ym, lm_in_range[i].x, lm_in_range[i].y);
+        if (curr_dist < min_dist) {
+          min_dist = curr_dist;
+          index = i;
         }
       }
-      assert(nearest != -1);
-      p.associations.emplace_back(nearest);
 
-      // Compute the multi-gaussian probability for this observation.
-      double lx = map_landmarks.landmark_list[nearest].x_f;
-      double ly = map_landmarks.landmark_list[nearest].y_f;
-      double prob = exp(-(squared(xm - lx) / 2 / squared(std_landmark[0]) +
-                          squared(ym - ly) / 2 / squared(std_landmark[1])))
-                    / 2 / M_PI / std_landmark[0] / std_landmark[1];
+      // Compute the multivariate-gaussian probability for this observation.
+      double prob = 0;
+      if (index >= 0) {
+        double lx = lm_in_range[index].x;
+        double ly = lm_in_range[index].y;
+        prob = exp(-(squared(xm - lx) / 2 / squared(std_landmark[0]) +
+                     squared(ym - ly) / 2 / squared(std_landmark[1])))
+                   / 2 / M_PI / std_landmark[0] / std_landmark[1];
+      } else {
+        cout<<"no landmark in range"<<endl;
+      }
 
       // Update this particle's weight.
       p.weight *= prob;
-    }
+
+      // Bookeeping.
+      p.sense_x.emplace_back(xm);
+      p.sense_y.emplace_back(ym);
+      p.associations.emplace_back(index >= 0 ? lm_in_range[index].id : -1);
+    } 
   }
 }
 

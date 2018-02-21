@@ -46,6 +46,8 @@ struct LandmarkObs {
 	int id;				// Id of matching landmark in the map.
 	double x;			// Local (vehicle coordinates) x position of landmark observation [m]
 	double y;			// Local (vehicle coordinates) y position of landmark observation [m]
+
+	LandmarkObs(int ii=0, double ix=0, double iy=0): id(ii), x(ix), y(iy) {} 
 };
 
 inline double squared(double x) {
