@@ -34,7 +34,7 @@ In the prediction model, ideally we should've used `std_a` and `std_yaw_rate`, s
 
 After a full run, we achieved the following error rate:
 
-<img src="result.jpg" border=1/>
+<img src="result.jpg" border="2" width="500" />
 
 
 
