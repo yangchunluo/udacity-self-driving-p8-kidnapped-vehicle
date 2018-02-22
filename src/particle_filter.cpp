@@ -55,16 +55,24 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
   // For the random Gaussian noise, ideally it should come from std_velocity and std_yaw_rate.
   // Using std_pos is a vast simplification in this project.
   default_random_engine gen;
-  for (auto& p : this->particles) {
-    normal_distribution<double> dist_x(p.x + velocity / yaw_rate *
-                                       (sin(p.theta + yaw_rate * delta_t) - sin(p.theta)));
-    normal_distribution<double> dist_y(p.y + velocity / yaw_rate *
-                                       (cos(p.theta) - cos(p.theta + yaw_rate * delta_t)));
-    normal_distribution<double> dist_theta(p.theta + yaw_rate);
 
-    p.x = dist_x(gen);
-    p.y = dist_y(gen);
-    p.theta = dist_theta(gen);
+  normal_distribution<double> dist_x(0, std_pos[0]);
+  normal_distribution<double> dist_y(0, std_pos[1]);
+  normal_distribution<double> dist_theta(0, std_pos[2]);
+
+  for (auto& p : this->particles) {
+    p.x += fabs(yaw_rate) < 0.000001 ?
+               velocity * cos(p.theta) * delta_t :
+               velocity / yaw_rate * (sin(p.theta + yaw_rate * delta_t) - sin(p.theta));
+    p.x += dist_x(gen);
+    
+    p.y += fabs(yaw_rate) < 0.000001 ?
+               velocity * sin(p.theta) * delta_t :
+               velocity / yaw_rate * (cos(p.theta) - cos(p.theta + yaw_rate * delta_t));
+    p.y += dist_y(gen);
+
+    p.theta += yaw_rate * delta_t;
+    p.theta += dist_theta(gen);
   }
 }
 
